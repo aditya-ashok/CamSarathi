@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Home Guardian — Smart Security Platform</title>
+  <meta name="description" content="AI-powered home monitoring that watches over your household, detects anomalies, tracks staff behavior and sends instant alerts." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen active">
+      <div class="login-bg">
+        <div class="login-orb orb1"></div>
+        <div class="login-orb orb2"></div>
+        <div class="login-orb orb3"></div>
+        <div class="login-grid"></div>
+      </div>
+      <div class="login-container">
+        <div class="login-card glass-card">
+          <div class="login-logo">
+            <div class="logo-icon">🛡️</div>
+            <div class="logo-text">
+              <h1>AI Home Guardian</h1>
+              <p>Intelligent Household Security</p>
+            </div>
+          </div>
+          <div class="login-demo-badge">
+            <span class="pulse-dot"></span>
+            Demo: demo@guardian.ai / demo1234
+          </div>
+          <form id="login-form" class="login-form">
+            <div class="field-group">
+              <label>Email Address</label>
+              <div class="input-wrapper">
+                <span class="input-icon">📧</span>
+                <input type="email" id="login-email" placeholder="you@example.com" value="demo@guardian.ai" required />
+              </div>
+            </div>
+            <div class="field-group">
+              <label>Password</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔑</span>
+                <input type="password" id="login-password" placeholder="••••••••" value="demo1234" required />
+              </div>
+            </div>
+            <button type="submit" class="btn-primary btn-full" id="login-btn">
+              <span>Sign In</span>
+              <span class="btn-arrow">→</span>
+            </button>
+            <div id="login-error" class="error-msg hidden"></div>
+          </form>
+          <div class="login-footer">
+            <p>New here? <a href="#" onclick="showRegister()">Create an account</a></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Register Screen -->
+    <div id="register-screen" class="screen">
+      <div class="login-bg">
+        <div class="login-orb orb1"></div>
+        <div class="login-orb orb2"></div>
+        <div class="login-grid"></div>
+      </div>
+      <div class="login-container">
+        <div class="login-card glass-card">
+          <div class="login-logo">
+            <div class="logo-icon">🛡️</div>
+            <div class="logo-text">
+              <h1>Create Account</h1>
+              <p>Set up your Guardian</p>
+            </div>
+          </div>
+          <form id="register-form" class="login-form">
+            <div class="field-group">
+              <label>Full Name</label>
+              <div class="input-wrapper">
+                <span class="input-icon">👤</span>
+                <input type="text" id="reg-name" placeholder="Your Name" required />
+              </div>
+            </div>
+            <div class="field-group">
+              <label>Email</label>
+              <div class="input-wrapper">
+                <span class="input-icon">📧</span>
+                <input type="email" id="reg-email" placeholder="you@example.com" required />
+              </div>
+            </div>
+            <div class="field-group">
+              <label>Password</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔑</span>
+                <input type="password" id="reg-password" placeholder="••••••••" required />
+              </div>
+            </div>
+            <div class="field-group">
+              <label>Phone (optional)</label>
+              <div class="input-wrapper">
+                <span class="input-icon">📱</span>
+                <input type="text" id="reg-phone" placeholder="+91-..." />
+              </div>
+            </div>
+            <button type="submit" class="btn-primary btn-full">
+              <span>Create Account</span>
+              <span class="btn-arrow">→</span>
+            </button>
+            <div id="reg-error" class="error-msg hidden"></div>
+          </form>
+          <div class="login-footer">
+            <p>Already have an account? <a href="#" onclick="showLogin()">Sign in</a></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app-screen" class="screen">
+      <!-- Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+          <div class="logo-icon-sm">🛡️</div>
+          <span>AI Guardian</span>
+        </div>
+        <nav class="sidebar-nav">
+          <a href="#" class="nav-item active" data-view="dashboard" onclick="navigate('dashboard')">
+            <span class="nav-icon">📊</span>
+            <span>Dashboard</span>
+          </a>
+          <a href="#" class="nav-item" data-view="incidents" onclick="navigate('incidents')">
+            <span class="nav-icon">🚨</span>
+            <span>Incidents</span>
+            <span class="nav-badge" id="incidents-badge"></span>
+          </a>
+          <a href="#" class="nav-item" data-view="cameras" onclick="navigate('cameras')">
+            <span class="nav-icon">📹</span>
+            <span>Cameras</span>
+          </a>
+          <a href="#" class="nav-item" data-view="staff" onclick="navigate('staff')">
+            <span class="nav-icon">👥</span>
+            <span>Staff</span>
+          </a>
+          <a href="#" class="nav-item" data-view="inventory" onclick="navigate('inventory')">
+            <span class="nav-icon">🧊</span>
+            <span>Fridge & Storage</span>
+          </a>
+          <a href="#" class="nav-item" data-view="alerts" onclick="navigate('alerts')">
+            <span class="nav-icon">🔔</span>
+            <span>Alerts</span>
+            <span class="nav-badge" id="alerts-badge"></span>
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="sidebar-user" id="sidebar-user">
+            <div class="user-avatar-sm" id="user-avatar-sm">A</div>
+            <div class="user-info-sm">
+              <div id="sidebar-user-name">Loading...</div>
+              <div class="user-role">Home Owner</div>
+            </div>
+          </div>
+          <button class="btn-logout" onclick="logout()">Sign Out</button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Top Bar -->
+        <header class="topbar">
+          <div class="topbar-left">
+            <h2 id="page-title">Dashboard</h2>
+          </div>
+          <div class="topbar-right">
+            <div class="ws-status" id="ws-status">
+              <span class="status-dot"></span>
+              <span>AI Active</span>
+            </div>
+            <button class="btn-simulate" onclick="simulateAIEvent()" title="Simulate AI Detection">
+              🤖 Simulate AI Event
+            </button>
+            <div class="alert-bell" onclick="navigate('alerts')">
+              🔔
+              <span class="bell-badge" id="bell-badge" style="display:none">0</span>
+            </div>
+          </div>
+        </header>
+
+        <!-- Views -->
+        <div class="view-container">
+          <!-- Dashboard View -->
+          <div id="view-dashboard" class="view active">
+            <div class="stats-grid" id="stats-grid"></div>
+            <div class="dashboard-grid">
+              <div class="dash-panel">
+                <div class="panel-header">
+                  <h3>🚨 Recent Incidents</h3>
+                  <a href="#" onclick="navigate('incidents')" class="panel-link">View All →</a>
+                </div>
+                <div id="recent-incidents-list" class="incidents-mini-list"></div>
+              </div>
+              <div class="dash-panel">
+                <div class="panel-header">
+                  <h3>👥 Staff Trust Scores</h3>
+                  <a href="#" onclick="navigate('staff')" class="panel-link">Manage →</a>
+                </div>
+                <div id="staff-trust-list"></div>
+              </div>
+              <div class="dash-panel full-width">
+                <div class="panel-header">
+                  <h3>📈 Incident Timeline (7 Days)</h3>
+                </div>
+                <div id="incident-chart" class="chart-container"></div>
+              </div>
+              <div class="dash-panel">
+                <div class="panel-header">
+                  <h3>📡 Live Activity Feed</h3>
+                </div>
+                <div id="live-activity-feed" class="activity-feed"></div>
+              </div>
+              <div class="dash-panel">
+                <div class="panel-header">
+                  <h3>🔔 Recent Alerts</h3>
+                </div>
+                <div id="recent-alerts-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Incidents View -->
+          <div id="view-incidents" class="view">
+            <div class="view-toolbar">
+              <div class="toolbar-filters">
+                <select id="filter-type" onchange="loadIncidents()" class="filter-select">
+                  <option value="">All Types</option>
+                  <option value="theft">Theft</option>
+                  <option value="hygiene">Hygiene</option>
+                  <option value="unauthorized_access">Unauthorized Access</option>
+                  <option value="unusual_behavior">Unusual Behavior</option>
+                  <option value="motion_detected">Motion Detected</option>
+                  <option value="visitor">Visitor</option>
+                </select>
+                <select id="filter-severity" onchange="loadIncidents()" class="filter-select">
+                  <option value="">All Severities</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+                <select id="filter-status" onchange="loadIncidents()" class="filter-select">
+                  <option value="">All Statuses</option>
+                  <option value="open">Open</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </div>
+              <button class="btn-primary btn-sm" onclick="showReportModal()">+ Report Incident</button>
+            </div>
+            <div id="incidents-list" class="incidents-list"></div>
+          </div>
+
+          <!-- Cameras View -->
+          <div id="view-cameras" class="view">
+            <div class="view-toolbar">
+              <h3 class="toolbar-title">Camera Network</h3>
+              <button class="btn-primary btn-sm" onclick="showCameraModal()">+ Add Camera</button>
+            </div>
+            <div id="cameras-grid" class="cameras-grid"></div>
+          </div>
+
+          <!-- Staff View -->
+          <div id="view-staff" class="view">
+            <div class="view-toolbar">
+              <h3 class="toolbar-title">Household Staff</h3>
+              <button class="btn-primary btn-sm" onclick="showStaffModal()">+ Add Staff</button>
+            </div>
+            <div id="staff-grid" class="staff-grid"></div>
+          </div>
+
+          <!-- Inventory View -->
+          <div id="view-inventory" class="view">
+            <div class="view-toolbar">
+              <h3 class="toolbar-title">🧊 Fridge & Storage Tracker</h3>
+              <button class="btn-primary btn-sm" onclick="showInventoryModal()">+ Add Item</button>
+            </div>
+            <div id="inventory-grid" class="inventory-grid"></div>
+          </div>
+
+          <!-- Alerts View -->
+          <div id="view-alerts" class="view">
+            <div class="view-toolbar">
+              <h3 class="toolbar-title">Notifications & Alerts</h3>
+              <button class="btn-secondary btn-sm" onclick="markAllRead()">Mark All Read</button>
+            </div>
+            <div id="alerts-list" class="alerts-list"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modals -->
+  <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)">
+    <div class="modal glass-card" id="modal-content" onclick="event.stopPropagation()">
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

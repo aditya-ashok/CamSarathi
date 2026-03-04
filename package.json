@@ -1,0 +1,24 @@
+{
+  "name": "camsarathi",
+  "version": "1.0.0",
+  "description": "AI Home Guardian — Intelligent Household Security Platform",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "keywords": ["ai", "home", "security", "guardian", "household"],
+  "author": "AI Home Guardian",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^9.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.1",
+    "ws": "^8.16.0"
+  }
+}
