@@ -24,7 +24,7 @@ const incidentsRouter = require('./routes/incidents');
 const alertsRouter = require('./routes/alerts');
 const inventoryRouter = require('./routes/inventory');
 const dashboardRouter = require('./routes/dashboard');
-const { router: streamRouter } = require('./routes/stream');
+const { router: streamRouter, cleanupStreams } = require('./routes/stream');
 
 app.use('/api/auth', authRouter);
 app.use('/api/cameras', camerasRouter);
@@ -81,3 +81,7 @@ server.listen(PORT, () => {
     console.log(`\n🛡️  AI Home Guardian Server running at http://localhost:${PORT}`);
     console.log(`📱 Demo Login: demo@guardian.ai / demo1234\n`);
 });
+
+// Cleanup FFmpeg processes on shutdown
+process.on('SIGTERM', () => { cleanupStreams(); process.exit(0); });
+process.on('SIGINT', () => { cleanupStreams(); process.exit(0); });

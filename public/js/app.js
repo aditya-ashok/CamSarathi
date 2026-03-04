@@ -594,8 +594,9 @@ function renderCameraCard(cam, grid) {
           <video id="cam-video-${cam.id}" class="cam-real-video" autoplay muted playsinline></video>
           <canvas id="cam-canvas-${cam.id}" class="cam-motion-canvas" style="display:none"></canvas>
         ` : isIP && hasIP ? `
-          <img id="cam-img-${cam.id}" class="cam-ip-img" src="/api/stream/snapshot/${cam.id}?t=${Date.now()}&tok=${token}"
-            onerror="this.style.display='none';document.getElementById('cam-offline-${cam.id}').style.display='flex'" />
+          <img id="cam-img-${cam.id}" class="cam-ip-img" src="/api/stream/rtsp/${cam.id}?tok=${token}"
+            onerror="onRtspFeedError(${cam.id}, this)" />
+          <div id="cam-fallback-${cam.id}" style="display:none;position:absolute;top:4px;left:4px;font-size:9px;color:#ffd43b;background:rgba(0,0,0,0.6);padding:2px 6px;border-radius:4px;z-index:5">SNAPSHOT MODE</div>
           <div id="cam-offline-${cam.id}" class="cam-offline-msg" style="display:none">
             <span>📡</span><p>Camera Offline</p><p style="font-size:11px;color:var(--text-dim)">${cam.cam_ip || ''}</p>
           </div>
@@ -641,10 +642,8 @@ function renderCameraCard(cam, grid) {
     `;
   grid.appendChild(el);
 
-  // Auto-start IP snapshot polling if configured
-  if (isIP && hasIP && cam.status === 'active') {
-    startIPSnapshotPolling(cam);
-  }
+  // RTSP stream auto-starts via <img src> — no polling needed
+  // Snapshot polling is used as fallback only (triggered by onRtspFeedError)
   // Auto-attach webcam if it was active
   if (isWebcam) {
     startWebcam(cam.id);
@@ -717,9 +716,39 @@ async function uploadSnapshot(camId, dataUrl, trigger = 'manual') {
   }
 }
 
-// ── IP Camera snapshot polling ───────────────────────────────────────────────
+// ── RTSP fallback: if RTSP stream fails, fall back to snapshot polling ──────
+function onRtspFeedError(camId, imgEl) {
+  // Prevent infinite onerror loop
+  if (imgEl.dataset.fallback === 'true') return;
+  imgEl.dataset.fallback = 'true';
+  imgEl.onerror = null;
+
+  console.warn(`RTSP stream failed for cam ${camId}, falling back to snapshot polling`);
+  const fallbackBadge = document.getElementById(`cam-fallback-${camId}`);
+
+  // Try snapshot mode first
+  const testImg = new Image();
+  testImg.onload = () => {
+    // Snapshot works — use polling fallback
+    if (fallbackBadge) fallbackBadge.style.display = '';
+    imgEl.src = testImg.src;
+    imgEl.style.display = '';
+    updateCameraStatusBadge(camId, true);
+    startIPSnapshotPolling({ id: camId });
+  };
+  testImg.onerror = () => {
+    // Both RTSP and snapshot failed — camera is offline
+    imgEl.style.display = 'none';
+    const offline = document.getElementById(`cam-offline-${camId}`);
+    if (offline) offline.style.display = 'flex';
+    updateCameraStatusBadge(camId, false);
+  };
+  testImg.src = `/api/stream/snapshot/${camId}?t=${Date.now()}&tok=${token}`;
+}
+
+// ── IP Camera snapshot polling (fallback mode) ──────────────────────────────
 function startIPSnapshotPolling(cam) {
-  // Refresh snapshot img every 3 seconds
+  if (activeStreams[cam.id]?.loopId) return; // already polling
   const intervalId = setInterval(() => {
     const img = document.getElementById(`cam-img-${cam.id}`);
     if (!img) { clearInterval(intervalId); return; }
@@ -801,7 +830,10 @@ async function probeCamera(camId) {
   try {
     const res = await api('GET', `/stream/probe/${camId}`);
     if (res.online) {
-      showToast('success', '✅ Camera Online', `Snapshot: ${res.snapshot_url}`);
+      const ports = [];
+      if (res.rtsp_reachable) ports.push('RTSP:554');
+      if (res.http_reachable) ports.push(`HTTP:${res.http_port || 80}`);
+      showToast('success', '✅ Camera Online', `Ports open: ${ports.join(', ')}`);
       updateCameraStatusBadge(camId, true);
     } else {
       showToast('danger', '❌ Camera Offline', res.reason);
@@ -827,25 +859,41 @@ function openCameraFullscreen(camId) {
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
       <div style="position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:16/9">
-        <img id="fullscreen-feed" src="/api/stream/snapshot/${camId}?t=${Date.now()}&tok=${token}"
-          style="width:100%;height:100%;object-fit:contain" />
+        <img id="fullscreen-feed" src="/api/stream/rtsp/${camId}?hd=1&tok=${token}"
+          style="width:100%;height:100%;object-fit:contain"
+          onerror="fullscreenFeedFallback(${camId}, this)" />
+        <div id="fullscreen-mode-badge" style="display:none;position:absolute;top:8px;left:8px;font-size:10px;color:#ffd43b;background:rgba(0,0,0,0.6);padding:3px 8px;border-radius:4px">SNAPSHOT MODE</div>
         <div style="position:absolute;bottom:12px;right:12px;display:flex;gap:8px">
           <button class="cam-btn cam-btn-snap" onclick="takeIPSnapshot(${camId})">📸 Snapshot</button>
         </div>
       </div>
       <p style="font-size:12px;color:var(--text-dim);text-align:center;margin-top:10px">
-        Auto-refreshing every 2s — for smooth video integrate MJPEG or RTSP-to-HLS
+        RTSP live stream via FFmpeg — HD mode
       </p>
     `;
-  // Poll every 2s inside the modal
-  const pollId = setInterval(() => {
+
+  // Cleanup RTSP stream when modal closes
+  const origClose = window.closeModal;
+  window.closeModal = () => {
     const img = document.getElementById('fullscreen-feed');
-    if (!img) { clearInterval(pollId); return; }
+    if (img) img.src = ''; // disconnect RTSP stream
+    if (window._fullscreenPollId) clearInterval(window._fullscreenPollId);
+    window.closeModal = origClose;
+    origClose();
+  };
+}
+
+function fullscreenFeedFallback(camId, imgEl) {
+  imgEl.onerror = null;
+  // Fall back to snapshot polling in fullscreen
+  const badge = document.getElementById('fullscreen-mode-badge');
+  if (badge) badge.style.display = '';
+  imgEl.src = `/api/stream/snapshot/${camId}?t=${Date.now()}&tok=${token}`;
+  window._fullscreenPollId = setInterval(() => {
+    const img = document.getElementById('fullscreen-feed');
+    if (!img) { clearInterval(window._fullscreenPollId); return; }
     img.src = `/api/stream/snapshot/${camId}?t=${Date.now()}&tok=${token}`;
   }, 2000);
-  // Stop polling when modal closes (monkey-patch)
-  const origClose = window.closeModal;
-  window.closeModal = () => { clearInterval(pollId); window.closeModal = origClose; origClose(); };
 }
 
 // ── Snapshot history viewer ───────────────────────────────────────────────────

@@ -2,8 +2,14 @@ const express = require('express');
 const router = express.Router();
 const http = require('http');
 const https = require('https');
+const { spawn } = require('child_process');
+const net = require('net');
 const db = require('../database');
 const { auth } = require('./auth');
+
+// Track active FFmpeg processes for cleanup
+const activeFFmpeg = new Map(); // cameraId -> { process, clients }
+const MAX_CONCURRENT_STREAMS = 8;
 
 /**
  * Camera Stream Proxy
@@ -89,6 +95,157 @@ router.get('/mjpeg/:cameraId', auth, (req, res) => {
     fetchFromCamera(mjpegUrl, cam.cam_username, cam.cam_password, res, true);
 });
 
+// GET /api/stream/rtsp/:cameraId — RTSP-to-MJPEG transcoding via FFmpeg
+router.get('/rtsp/:cameraId', auth, (req, res) => {
+    const cam = db.prepare('SELECT * FROM cameras WHERE id = ? AND user_id = ?').get(req.params.cameraId, req.userId);
+    if (!cam) return res.status(404).json({ error: 'Camera not found' });
+    if (!cam.cam_ip) return res.status(400).json({ error: 'No IP configured for this camera' });
+
+    if (activeFFmpeg.size >= MAX_CONCURRENT_STREAMS && !activeFFmpeg.has(cam.id)) {
+        return res.status(503).json({ error: `Max ${MAX_CONCURRENT_STREAMS} concurrent streams reached` });
+    }
+
+    const rtspUrl = buildRtspInfo(cam);
+    if (!rtspUrl) return res.status(400).json({ error: 'Cannot build RTSP URL' });
+
+    // Use sub-stream (subtype=1) for less bandwidth by default
+    const streamUrl = req.query.hd === '1' ? rtspUrl : rtspUrl.replace('subtype=0', 'subtype=1');
+
+    const BOUNDARY = '----mjpegboundary';
+    res.setHeader('Content-Type', `multipart/x-mixed-replace; boundary=${BOUNDARY}`);
+    res.setHeader('Cache-Control', 'no-cache, no-store');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    // Reuse existing FFmpeg process if another client is watching this camera
+    let entry = activeFFmpeg.get(cam.id);
+    if (entry && entry.process && !entry.process.killed) {
+        entry.clients.add(res);
+        res.on('close', () => {
+            entry.clients.delete(res);
+            if (entry.clients.size === 0) {
+                // No more clients, kill FFmpeg after a grace period
+                setTimeout(() => {
+                    const e = activeFFmpeg.get(cam.id);
+                    if (e && e.clients.size === 0) {
+                        e.process.kill('SIGTERM');
+                        activeFFmpeg.delete(cam.id);
+                    }
+                }, 5000);
+            }
+        });
+        return;
+    }
+
+    // Spawn FFmpeg: RTSP → MJPEG frames on stdout
+    const ffmpegArgs = [
+        '-rtsp_transport', 'tcp',
+        '-i', streamUrl,
+        '-f', 'mjpeg',
+        '-q:v', '5',         // JPEG quality (2=best, 31=worst)
+        '-r', '15',           // 15 fps
+        '-an',                // no audio
+        '-vf', 'scale=640:-1', // scale down for bandwidth
+        'pipe:1'
+    ];
+
+    const ffProcess = spawn('ffmpeg', ffmpegArgs, {
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    const clients = new Set([res]);
+    activeFFmpeg.set(cam.id, { process: ffProcess, clients });
+
+    // Parse MJPEG frames from FFmpeg stdout
+    let buffer = Buffer.alloc(0);
+    const SOI = Buffer.from([0xFF, 0xD8]); // JPEG start
+    const EOI = Buffer.from([0xFF, 0xD9]); // JPEG end
+
+    ffProcess.stdout.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+
+        let soiIdx, eoiIdx;
+        while (true) {
+            soiIdx = buffer.indexOf(SOI);
+            if (soiIdx === -1) break;
+            eoiIdx = buffer.indexOf(EOI, soiIdx + 2);
+            if (eoiIdx === -1) break;
+
+            const frame = buffer.subarray(soiIdx, eoiIdx + 2);
+            buffer = buffer.subarray(eoiIdx + 2);
+
+            // Send frame to all connected clients
+            const entry = activeFFmpeg.get(cam.id);
+            if (entry) {
+                for (const client of entry.clients) {
+                    try {
+                        client.write(`--${BOUNDARY}\r\n`);
+                        client.write('Content-Type: image/jpeg\r\n');
+                        client.write(`Content-Length: ${frame.length}\r\n\r\n`);
+                        client.write(frame);
+                        client.write('\r\n');
+                    } catch { /* client disconnected */ }
+                }
+            }
+        }
+
+        // Prevent buffer from growing unbounded
+        if (buffer.length > 2 * 1024 * 1024) {
+            buffer = buffer.subarray(buffer.length - 512 * 1024);
+        }
+    });
+
+    let stderrLog = '';
+    ffProcess.stderr.on('data', (data) => {
+        stderrLog += data.toString();
+        // Only keep last 2KB of stderr
+        if (stderrLog.length > 2048) stderrLog = stderrLog.slice(-2048);
+    });
+
+    ffProcess.on('error', (err) => {
+        console.error(`FFmpeg spawn error for cam ${cam.id}:`, err.message);
+        const entry = activeFFmpeg.get(cam.id);
+        if (entry) {
+            for (const client of entry.clients) {
+                if (!client.headersSent) {
+                    try { client.status(502).json({ error: 'FFmpeg not found. Install FFmpeg to enable RTSP streaming.' }); } catch {}
+                }
+            }
+            activeFFmpeg.delete(cam.id);
+        }
+    });
+
+    ffProcess.on('close', (code) => {
+        const entry = activeFFmpeg.get(cam.id);
+        if (entry) {
+            activeFFmpeg.delete(cam.id);
+            for (const client of entry.clients) {
+                try { client.end(); } catch {}
+            }
+        }
+        if (code !== 0 && code !== null) {
+            console.error(`FFmpeg exited with code ${code} for cam ${cam.id}. Last stderr: ${stderrLog.slice(-500)}`);
+        }
+    });
+
+    // Cleanup on client disconnect
+    res.on('close', () => {
+        const entry = activeFFmpeg.get(cam.id);
+        if (entry) {
+            entry.clients.delete(res);
+            if (entry.clients.size === 0) {
+                setTimeout(() => {
+                    const e = activeFFmpeg.get(cam.id);
+                    if (e && e.clients.size === 0) {
+                        e.process.kill('SIGTERM');
+                        activeFFmpeg.delete(cam.id);
+                    }
+                }, 5000);
+            }
+        }
+    });
+});
+
 // GET /api/stream/probe/:cameraId — test if camera is reachable
 router.get('/probe/:cameraId', auth, async (req, res) => {
     const cam = db.prepare('SELECT * FROM cameras WHERE id = ? AND user_id = ?').get(req.params.cameraId, req.userId);
@@ -98,22 +255,34 @@ router.get('/probe/:cameraId', auth, async (req, res) => {
     const parsed = (() => { try { return new URL(`http://${cam.cam_ip}`); } catch { return null; } })();
     if (!parsed) return res.json({ online: false, reason: 'Invalid IP address' });
 
-    const socket = require('net').createConnection({ port: cam.cam_port || 80, host: cam.cam_ip, timeout: 3000 });
-    socket.on('connect', () => {
-        socket.destroy();
-        // Update last_seen
+    // Test both RTSP (554) and HTTP ports
+    const testPort = (port) => new Promise((resolve) => {
+        const sock = net.createConnection({ port, host: cam.cam_ip, timeout: 3000 });
+        sock.on('connect', () => { sock.destroy(); resolve(true); });
+        sock.on('error', () => { sock.destroy(); resolve(false); });
+        sock.on('timeout', () => { sock.destroy(); resolve(false); });
+    });
+
+    const [httpOk, rtspOk] = await Promise.all([
+        testPort(cam.cam_port || 80),
+        testPort(554)
+    ]);
+
+    if (httpOk || rtspOk) {
         db.prepare('UPDATE cameras SET status = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?').run('active', cam.id);
-        res.json({ online: true, rtsp_url: buildRtspInfo(cam), snapshot_url: `/api/stream/snapshot/${cam.id}`, mjpeg_url: `/api/stream/mjpeg/${cam.id}` });
-    });
-    socket.on('error', () => {
-        socket.destroy();
+        res.json({
+            online: true,
+            http_reachable: httpOk,
+            rtsp_reachable: rtspOk,
+            rtsp_url: buildRtspInfo(cam),
+            rtsp_stream: `/api/stream/rtsp/${cam.id}`,
+            snapshot_url: `/api/stream/snapshot/${cam.id}`,
+            mjpeg_url: `/api/stream/mjpeg/${cam.id}`
+        });
+    } else {
         db.prepare("UPDATE cameras SET status = 'offline' WHERE id = ?").run(cam.id);
-        res.json({ online: false, reason: 'Port unreachable — check camera IP and network' });
-    });
-    socket.on('timeout', () => {
-        socket.destroy();
-        res.json({ online: false, reason: 'Connection timeout' });
-    });
+        res.json({ online: false, reason: 'Camera unreachable — check IP address and network connection' });
+    }
 });
 
 // Helpers ———————————————————————————————————————————
@@ -151,4 +320,14 @@ function buildRtspInfo(cam) {
     return `rtsp://${user}:${pass}@${ip}:554/`;
 }
 
-module.exports = { router, buildRtspInfo };
+// Cleanup all FFmpeg processes on shutdown
+function cleanupStreams() {
+    for (const [camId, entry] of activeFFmpeg) {
+        if (entry.process && !entry.process.killed) {
+            entry.process.kill('SIGTERM');
+        }
+    }
+    activeFFmpeg.clear();
+}
+
+module.exports = { router, buildRtspInfo, cleanupStreams };
