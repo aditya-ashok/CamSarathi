@@ -439,7 +439,8 @@ function buildSnapshotUrl(cam) {
     const ip = cam.cam_ip;
     const port = cam.cam_port || 80;
     const base = `http://${ip}:${port}`;
-    // CP Plus specific first, then generic fallback
+    // Tapo cameras don't support HTTP snapshots — use RTSP frame grab via FFmpeg instead
+    if (cam.cam_brand === 'tapo' || cam.cam_brand === 'tplink') return null;
     if (cam.cam_brand === 'cpplus') return `${base}/cgi-bin/snapshot.cgi?channel=0`;
     if (cam.cam_brand === 'hikvision') return `${base}/ISAPI/Streaming/channels/101/picture`;
     if (cam.cam_brand === 'dahua') return `${base}/cgi-bin/snapshot.cgi`;
@@ -460,9 +461,11 @@ function buildMjpegUrl(cam) {
 
 function buildRtspInfo(cam) {
     if (!cam.cam_ip) return null;
-    const user = cam.cam_username || 'admin';
-    const pass = cam.cam_password || 'admin';
+    // URL-encode credentials to handle special chars like @ in usernames/passwords
+    const user = encodeURIComponent(cam.cam_username || 'admin');
+    const pass = encodeURIComponent(cam.cam_password || 'admin');
     const ip = cam.cam_ip;
+    if (cam.cam_brand === 'tapo' || cam.cam_brand === 'tplink') return `rtsp://${user}:${pass}@${ip}:554/stream1`;
     if (cam.cam_brand === 'cpplus') return `rtsp://${user}:${pass}@${ip}:554/cam/realmonitor?channel=1&subtype=0`;
     if (cam.cam_brand === 'hikvision') return `rtsp://${user}:${pass}@${ip}:554/Streaming/Channels/101`;
     if (cam.cam_brand === 'dahua') return `rtsp://${user}:${pass}@${ip}:554/cam/realmonitor?channel=1&subtype=0`;
