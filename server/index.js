@@ -57,19 +57,8 @@ const broadcast = (data) => {
     });
 };
 
-// Simulate AI events every 45 seconds
-setInterval(() => {
-    if (clients.size > 0) {
-        const events = [
-            { type: 'motion_detected', location: 'Kitchen', message: '🔍 Motion detected in Kitchen', severity: 'low' },
-            { type: 'fridge_opened', location: 'Kitchen', message: '🧊 Refrigerator opened at 11:42 AM', severity: 'low' },
-            { type: 'person_detected', location: 'Entrance', message: '👤 Unknown person at front door', severity: 'medium' },
-            { type: 'ai_alert', location: 'Kitchen', message: '⚠️ AI: Suspicious behavior detected — food item being removed', severity: 'high' },
-        ];
-        const event = events[Math.floor(Math.random() * events.length)];
-        broadcast({ event: 'ai_event', data: event, timestamp: new Date().toISOString() });
-    }
-}, 45000);
+// Real-time alerts are now triggered by actual camera events only
+// (no more simulated 45-second fake broadcasts)
 
 // Serve index.html for all non-API routes
 app.get('/{*path}', (req, res) => {

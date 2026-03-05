@@ -3,6 +3,7 @@ let token = localStorage.getItem('guardian_token') || null;
 let currentUser = null;
 let currentView = 'dashboard';
 let ws = null;
+let hideSimulated = localStorage.getItem('hideSimulated') === 'true';
 
 const API = '/api';
 
@@ -571,11 +572,26 @@ function stopAllStreams() {
 function renderCameras(cameras) {
   const grid = document.getElementById('cameras-grid');
   grid.innerHTML = '';
-  if (!cameras.length) {
-    grid.innerHTML = '<div class="empty-state"><span class="empty-icon">📹</span><p>No cameras added yet</p></div>';
+  // Update toggle button state
+  const btn = document.getElementById('hide-sim-btn');
+  if (btn) {
+    btn.textContent = hideSimulated ? '👁 Show Simulated' : '👁‍🗨 Hide Simulated';
+    btn.classList.toggle('active', hideSimulated);
+  }
+  const filtered = hideSimulated ? cameras.filter(c => c.source_type !== 'simulated') : cameras;
+  if (!filtered.length) {
+    grid.innerHTML = hideSimulated
+      ? '<div class="empty-state"><span class="empty-icon">📹</span><p>No real cameras found</p><p style="font-size:12px;color:var(--text-dim)">Add an IP or webcam camera, or show simulated cameras</p></div>'
+      : '<div class="empty-state"><span class="empty-icon">📹</span><p>No cameras added yet</p></div>';
     return;
   }
-  cameras.forEach(cam => renderCameraCard(cam, grid));
+  filtered.forEach(cam => renderCameraCard(cam, grid));
+}
+
+function toggleHideSimulated() {
+  hideSimulated = !hideSimulated;
+  localStorage.setItem('hideSimulated', hideSimulated);
+  loadCameras();
 }
 
 function renderCameraCard(cam, grid) {

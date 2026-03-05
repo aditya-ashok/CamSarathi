@@ -9,10 +9,16 @@ router.get('/', auth, (req, res) => {
     SELECT a.*, i.type as incident_type, i.location as incident_location
     FROM alerts a
     LEFT JOIN incidents i ON a.incident_id = i.id
-    WHERE a.user_id = ?
+    LEFT JOIN cameras c ON i.camera_id = c.id
+    WHERE a.user_id = ? AND (c.source_type IS NULL OR c.source_type != 'simulated')
     ORDER BY a.sent_at DESC LIMIT 50
   `).all(req.userId);
-    const unread = db.prepare('SELECT COUNT(*) as c FROM alerts WHERE user_id = ? AND read = 0').get(req.userId).c;
+    const unread = db.prepare(`
+    SELECT COUNT(*) as c FROM alerts a
+    LEFT JOIN incidents i ON a.incident_id = i.id
+    LEFT JOIN cameras c ON i.camera_id = c.id
+    WHERE a.user_id = ? AND a.read = 0 AND (c.source_type IS NULL OR c.source_type != 'simulated')
+  `).get(req.userId).c;
     res.json({ alerts, unread });
 });
 

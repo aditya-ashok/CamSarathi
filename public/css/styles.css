@@ -1039,6 +1039,29 @@ body {
     flex-wrap: wrap;
 }
 
+.btn-toggle-sim {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-toggle-sim:hover {
+    border-color: var(--primary);
+    color: var(--text);
+}
+
+.btn-toggle-sim.active {
+    background: rgba(46, 213, 115, 0.15);
+    border-color: var(--success);
+    color: var(--success);
+}
+
 .filter-select {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--border);

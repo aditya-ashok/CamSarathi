@@ -17,13 +17,13 @@ router.get('/', auth, (req, res) => {
             terminated: db.prepare("SELECT COUNT(*) as c FROM staff WHERE user_id = ? AND status = 'terminated'").get(uid).c,
         },
         incidents: {
-            total: db.prepare('SELECT COUNT(*) as c FROM incidents WHERE user_id = ?').get(uid).c,
-            open: db.prepare("SELECT COUNT(*) as c FROM incidents WHERE user_id = ? AND status = 'open'").get(uid).c,
-            today: db.prepare("SELECT COUNT(*) as c FROM incidents WHERE user_id = ? AND date(created_at) = date('now')").get(uid).c,
-            high_severity: db.prepare("SELECT COUNT(*) as c FROM incidents WHERE user_id = ? AND severity = 'high' AND status = 'open'").get(uid).c,
+            total: db.prepare("SELECT COUNT(*) as c FROM incidents i LEFT JOIN cameras c ON i.camera_id = c.id WHERE i.user_id = ? AND (c.source_type IS NULL OR c.source_type != 'simulated')").get(uid).c,
+            open: db.prepare("SELECT COUNT(*) as c FROM incidents i LEFT JOIN cameras c ON i.camera_id = c.id WHERE i.user_id = ? AND i.status = 'open' AND (c.source_type IS NULL OR c.source_type != 'simulated')").get(uid).c,
+            today: db.prepare("SELECT COUNT(*) as c FROM incidents i LEFT JOIN cameras c ON i.camera_id = c.id WHERE i.user_id = ? AND date(i.created_at) = date('now') AND (c.source_type IS NULL OR c.source_type != 'simulated')").get(uid).c,
+            high_severity: db.prepare("SELECT COUNT(*) as c FROM incidents i LEFT JOIN cameras c ON i.camera_id = c.id WHERE i.user_id = ? AND i.severity = 'high' AND i.status = 'open' AND (c.source_type IS NULL OR c.source_type != 'simulated')").get(uid).c,
         },
         alerts: {
-            unread: db.prepare('SELECT COUNT(*) as c FROM alerts WHERE user_id = ? AND read = 0').get(uid).c,
+            unread: db.prepare("SELECT COUNT(*) as c FROM alerts a LEFT JOIN incidents i ON a.incident_id = i.id LEFT JOIN cameras c ON i.camera_id = c.id WHERE a.user_id = ? AND a.read = 0 AND (c.source_type IS NULL OR c.source_type != 'simulated')").get(uid).c,
         },
         inventory: {
             total: db.prepare('SELECT COUNT(*) as c FROM inventory_items WHERE user_id = ?').get(uid).c,
@@ -36,11 +36,16 @@ router.get('/', auth, (req, res) => {
     FROM incidents i
     LEFT JOIN staff s ON i.staff_id = s.id
     LEFT JOIN cameras c ON i.camera_id = c.id
-    WHERE i.user_id = ? ORDER BY i.created_at DESC LIMIT 5
+    WHERE i.user_id = ? AND (c.source_type IS NULL OR c.source_type != 'simulated')
+    ORDER BY i.created_at DESC LIMIT 5
   `).all(uid);
 
     const recent_alerts = db.prepare(`
-    SELECT * FROM alerts WHERE user_id = ? ORDER BY sent_at DESC LIMIT 5
+    SELECT a.* FROM alerts a
+    LEFT JOIN incidents i ON a.incident_id = i.id
+    LEFT JOIN cameras c ON i.camera_id = c.id
+    WHERE a.user_id = ? AND (c.source_type IS NULL OR c.source_type != 'simulated')
+    ORDER BY a.sent_at DESC LIMIT 5
   `).all(uid);
 
     const staff_list = db.prepare(`
@@ -60,7 +65,8 @@ router.get('/', auth, (req, res) => {
     FROM activity_logs al
     LEFT JOIN staff s ON al.staff_id = s.id
     LEFT JOIN cameras c ON al.camera_id = c.id
-    WHERE al.user_id = ? ORDER BY al.created_at DESC LIMIT 10
+    WHERE al.user_id = ? AND (c.source_type IS NULL OR c.source_type != 'simulated')
+    ORDER BY al.created_at DESC LIMIT 10
   `).all(uid);
 
     res.json({ stats, recent_incidents, recent_alerts, staff_list, timeline_7days, recent_activity });
@@ -79,7 +85,8 @@ router.post('/simulate-ai-event', auth, (req, res) => {
 
     const event = events[Math.floor(Math.random() * events.length)];
     const staff = db.prepare("SELECT id FROM staff WHERE user_id = ? AND status = 'active' ORDER BY RANDOM() LIMIT 1").get(uid);
-    const camera = db.prepare('SELECT id FROM cameras WHERE user_id = ? ORDER BY RANDOM() LIMIT 1').get(uid);
+    const camera = db.prepare("SELECT id FROM cameras WHERE user_id = ? AND source_type != 'simulated' ORDER BY RANDOM() LIMIT 1").get(uid);
+    if (!camera) return res.status(400).json({ error: 'No real cameras found. Add an IP or webcam camera first.' });
 
     const incId = db.prepare(`
     INSERT INTO incidents (user_id, camera_id, staff_id, type, severity, title, description, location, ai_confidence, status)

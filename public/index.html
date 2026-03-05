@@ -264,7 +264,10 @@
           <div id="view-cameras" class="view">
             <div class="view-toolbar">
               <h3 class="toolbar-title">Camera Network</h3>
-              <button class="btn-primary btn-sm" onclick="showCameraModal()">+ Add Camera</button>
+              <div style="display:flex;gap:8px;align-items:center">
+                <button id="hide-sim-btn" class="btn-toggle-sim" onclick="toggleHideSimulated()">👁 Hide Simulated</button>
+                <button class="btn-primary btn-sm" onclick="showCameraModal()">+ Add Camera</button>
+              </div>
             </div>
             <div id="cameras-grid" class="cameras-grid"></div>
           </div>
