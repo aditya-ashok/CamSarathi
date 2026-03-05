@@ -17,31 +17,33 @@ router.get('/', auth, (req, res) => {
 // POST /api/cameras
 router.post('/', auth, (req, res) => {
     const { name, location, zone, stream_url, sensitivity, source_type,
-        cam_ip, cam_port, cam_username, cam_password, cam_brand } = req.body;
+        cam_ip, cam_port, cam_username, cam_password, cam_brand, onvif_port } = req.body;
     if (!name || !location || !zone) return res.status(400).json({ error: 'Name, location and zone required' });
     const result = db.prepare(`
         INSERT INTO cameras (user_id, name, location, zone, stream_url, sensitivity, source_type,
-            cam_ip, cam_port, cam_username, cam_password, cam_brand)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            cam_ip, cam_port, cam_username, cam_password, cam_brand, onvif_port)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(req.userId, name, location, zone, stream_url || '', sensitivity || 'medium',
         source_type || 'simulated', cam_ip || null, cam_port || 80,
-        cam_username || 'admin', cam_password || 'admin', cam_brand || 'generic');
+        cam_username || 'admin', cam_password || 'admin', cam_brand || 'generic',
+        onvif_port || 8000);
     res.json({ id: result.lastInsertRowid, message: 'Camera added' });
 });
 
 // PUT /api/cameras/:id
 router.put('/:id', auth, (req, res) => {
     const { name, location, zone, status, sensitivity, stream_url, source_type,
-        cam_ip, cam_port, cam_username, cam_password, cam_brand } = req.body;
+        cam_ip, cam_port, cam_username, cam_password, cam_brand, onvif_port } = req.body;
     const cam = db.prepare('SELECT id FROM cameras WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
     if (!cam) return res.status(404).json({ error: 'Camera not found' });
     db.prepare(`
         UPDATE cameras SET name=?, location=?, zone=?, status=?, sensitivity=?, stream_url=?, source_type=?,
-            cam_ip=?, cam_port=?, cam_username=?, cam_password=?, cam_brand=?
+            cam_ip=?, cam_port=?, cam_username=?, cam_password=?, cam_brand=?, onvif_port=?
         WHERE id=?
     `).run(name, location, zone, status || 'active', sensitivity, stream_url || '',
         source_type || 'simulated', cam_ip || null, cam_port || 80,
-        cam_username || 'admin', cam_password || 'admin', cam_brand || 'generic', req.params.id);
+        cam_username || 'admin', cam_password || 'admin', cam_brand || 'generic',
+        onvif_port || 8000, req.params.id);
     res.json({ message: 'Camera updated' });
 });
 

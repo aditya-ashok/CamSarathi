@@ -2078,6 +2078,157 @@ textarea.form-input {
     }
 }
 
+/* ── PTZ Control Panel ─────────────────────────────────────────────────────── */
+.camera-card:has(.ptz-panel) .camera-feed {
+    height: 220px;
+}
+
+.ptz-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #040812 0%, #0a1628 100%);
+    position: relative;
+    z-index: 1;
+    padding: 8px;
+}
+
+.ptz-header {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--secondary);
+    opacity: 0.7;
+}
+
+.ptz-dpad {
+    display: grid;
+    grid-template-areas:
+        ".  up  ."
+        "lt ct rt"
+        ".  dn  .";
+    grid-template-columns: 36px 36px 36px;
+    grid-template-rows: 36px 36px 36px;
+    gap: 3px;
+}
+
+.ptz-dpad-lg {
+    grid-template-columns: 48px 48px 48px;
+    grid-template-rows: 48px 48px 48px;
+    gap: 5px;
+}
+
+.ptz-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(91, 127, 255, 0.12);
+    border: 1px solid rgba(91, 127, 255, 0.3);
+    border-radius: 8px;
+    color: var(--primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: var(--transition);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.ptz-btn:hover {
+    background: rgba(91, 127, 255, 0.3);
+    border-color: var(--primary);
+    color: white;
+}
+
+.ptz-btn:active {
+    background: rgba(91, 127, 255, 0.5);
+    transform: scale(0.93);
+}
+
+.ptz-up { grid-area: up; }
+.ptz-left { grid-area: lt; }
+.ptz-center { grid-area: ct; background: rgba(255, 71, 87, 0.12); border-color: rgba(255, 71, 87, 0.3); color: var(--danger); font-size: 10px; }
+.ptz-center:hover { background: rgba(255, 71, 87, 0.3); }
+.ptz-right { grid-area: rt; }
+.ptz-down { grid-area: dn; }
+
+.ptz-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ptz-zoom-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+}
+
+.ptz-zoom {
+    width: 36px;
+    height: 28px;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 6px;
+}
+
+.ptz-zoom-lg .ptz-zoom {
+    width: auto;
+    padding: 8px 16px;
+    font-size: 13px;
+}
+
+.ptz-app-btn {
+    background: linear-gradient(135deg, rgba(0, 212, 170, 0.15), rgba(0, 212, 170, 0.08));
+    border: 1px solid rgba(0, 212, 170, 0.35);
+    border-radius: 8px;
+    color: var(--secondary);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.ptz-app-btn:hover {
+    background: rgba(0, 212, 170, 0.25);
+    border-color: var(--secondary);
+    color: white;
+}
+
+.ptz-app-btn-lg {
+    font-size: 14px;
+    padding: 10px 24px;
+    margin-top: 8px;
+}
+
+.ptz-fullscreen {
+    background: #000;
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.ptz-fs-info {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.ptz-panel-lg {
+    background: transparent;
+    gap: 14px;
+    padding: 16px;
+}
+
 /* Camera type tags */
 .cam-type-tag {
     margin: 6px 0;

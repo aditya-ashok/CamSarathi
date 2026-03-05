@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const net = require('net');
 const db = require('../database');
@@ -255,7 +256,7 @@ router.get('/probe/:cameraId', auth, async (req, res) => {
     const parsed = (() => { try { return new URL(`http://${cam.cam_ip}`); } catch { return null; } })();
     if (!parsed) return res.json({ online: false, reason: 'Invalid IP address' });
 
-    // Test both RTSP (554) and HTTP ports
+    // Test RTSP (554), HTTP, and ONVIF (8000) ports
     const testPort = (port) => new Promise((resolve) => {
         const sock = net.createConnection({ port, host: cam.cam_ip, timeout: 3000 });
         sock.on('connect', () => { sock.destroy(); resolve(true); });
@@ -263,17 +264,22 @@ router.get('/probe/:cameraId', auth, async (req, res) => {
         sock.on('timeout', () => { sock.destroy(); resolve(false); });
     });
 
-    const [httpOk, rtspOk] = await Promise.all([
+    const onvifPort = cam.onvif_port || 8000;
+    const [httpOk, rtspOk, onvifOk] = await Promise.all([
         testPort(cam.cam_port || 80),
-        testPort(554)
+        testPort(554),
+        testPort(onvifPort)
     ]);
 
-    if (httpOk || rtspOk) {
+    if (httpOk || rtspOk || onvifOk) {
         db.prepare('UPDATE cameras SET status = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?').run('active', cam.id);
         res.json({
             online: true,
             http_reachable: httpOk,
             rtsp_reachable: rtspOk,
+            onvif_reachable: onvifOk,
+            onvif_port: onvifPort,
+            ptz_supported: onvifOk && cam.cam_brand === 'cpplus',
             rtsp_url: buildRtspInfo(cam),
             rtsp_stream: `/api/stream/rtsp/${cam.id}`,
             snapshot_url: `/api/stream/snapshot/${cam.id}`,
@@ -282,6 +288,149 @@ router.get('/probe/:cameraId', auth, async (req, res) => {
     } else {
         db.prepare("UPDATE cameras SET status = 'offline' WHERE id = ?").run(cam.id);
         res.json({ online: false, reason: 'Camera unreachable — check IP address and network connection' });
+    }
+});
+
+// ── ONVIF PTZ Control (WS-Security UsernameToken) ─────────────────────────────
+
+function wsSecurityHeader(username, password) {
+    const nonceBytes = crypto.randomBytes(16);
+    const nonceB64 = nonceBytes.toString('base64');
+    const created = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const digestInput = Buffer.concat([nonceBytes, Buffer.from(created), Buffer.from(password)]);
+    const passwordDigest = crypto.createHash('sha1').update(digestInput).digest('base64');
+    return `<wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+      <wsse:UsernameToken>
+        <wsse:Username>${username}</wsse:Username>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest">${passwordDigest}</wsse:Password>
+        <wsse:Nonce EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary">${nonceB64}</wsse:Nonce>
+        <wsu:Created>${created}</wsu:Created>
+      </wsse:UsernameToken>
+    </wsse:Security>`;
+}
+
+function onvifSoapRequest(host, port, path, soapBody, username, password) {
+    return new Promise((resolve, reject) => {
+        const envelope = `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+            xmlns:tptz="http://www.onvif.org/ver20/ptz/wsdl"
+            xmlns:tt="http://www.onvif.org/ver10/schema"
+            xmlns:trt="http://www.onvif.org/ver10/media/wsdl">
+  <s:Header>${wsSecurityHeader(username, password)}</s:Header>
+  <s:Body>${soapBody}</s:Body>
+</s:Envelope>`;
+
+        const req = http.request({
+            hostname: host, port, path, method: 'POST',
+            headers: { 'Content-Type': 'application/soap+xml; charset=utf-8', 'Content-Length': Buffer.byteLength(envelope) },
+            timeout: 5000,
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300 && !data.includes('ter:NotAuthorized')) {
+                    resolve(data);
+                } else if (data.includes('ter:NotAuthorized')) {
+                    reject(new Error('ONVIF auth failed — check camera username/password'));
+                } else {
+                    // Extract SOAP fault reason if present
+                    const reason = data.match(/<s:Text[^>]*>([^<]+)<\/s:Text>/)?.[1] || `HTTP ${res.statusCode}`;
+                    reject(new Error(`ONVIF: ${reason}`));
+                }
+            });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('ONVIF timeout')); });
+        req.write(envelope);
+        req.end();
+    });
+}
+
+// Cache profile tokens per camera (they change on reboot)
+const profileCache = new Map(); // camId -> { token, fetchedAt }
+
+async function getProfileToken(cam) {
+    const cached = profileCache.get(cam.id);
+    if (cached && Date.now() - cached.fetchedAt < 3600000) return cached.token; // 1hr cache
+
+    const onvifPort = cam.onvif_port || 8000;
+    const user = cam.cam_username || 'admin';
+    const pass = cam.cam_password || 'admin';
+
+    const result = await onvifSoapRequest(cam.cam_ip, onvifPort, '/onvif/media_service',
+        '<trt:GetProfiles/>', user, pass);
+    const match = result.match(/token="([^"]+)"/);
+    if (!match) throw new Error('No ONVIF profiles found');
+    const token = match[1];
+    profileCache.set(cam.id, { token, fetchedAt: Date.now() });
+    return token;
+}
+
+// POST /api/stream/ptz/:cameraId/move — ONVIF ContinuousMove
+router.post('/ptz/:cameraId/move', auth, async (req, res) => {
+    const cam = db.prepare('SELECT * FROM cameras WHERE id = ? AND user_id = ?').get(req.params.cameraId, req.userId);
+    if (!cam) return res.status(404).json({ error: 'Camera not found' });
+    if (!cam.cam_ip) return res.status(400).json({ error: 'No IP configured' });
+
+    const { x = 0, y = 0, zoom = 0 } = req.body;
+    const duration = Math.min(Math.abs(req.body.duration || 500), 3000);
+    const onvifPort = cam.onvif_port || 8000;
+    const user = cam.cam_username || 'admin';
+    const pass = cam.cam_password || 'admin';
+
+    try {
+        const profileToken = await getProfileToken(cam);
+        const moveBody = `
+    <tptz:ContinuousMove>
+      <tptz:ProfileToken>${profileToken}</tptz:ProfileToken>
+      <tptz:Velocity>
+        <tt:PanTilt x="${x}" y="${y}"/>
+        <tt:Zoom x="${zoom}"/>
+      </tptz:Velocity>
+    </tptz:ContinuousMove>`;
+
+        await onvifSoapRequest(cam.cam_ip, onvifPort, '/onvif/ptz_service', moveBody, user, pass);
+        // Auto-stop after duration
+        setTimeout(async () => {
+            try {
+                const stopBody = `
+                <tptz:Stop>
+                  <tptz:ProfileToken>${profileToken}</tptz:ProfileToken>
+                  <tptz:PanTilt>true</tptz:PanTilt>
+                  <tptz:Zoom>true</tptz:Zoom>
+                </tptz:Stop>`;
+                await onvifSoapRequest(cam.cam_ip, onvifPort, '/onvif/ptz_service', stopBody, user, pass);
+            } catch { /* ignore stop errors */ }
+        }, duration);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(502).json({ error: `PTZ error: ${err.message}` });
+    }
+});
+
+// POST /api/stream/ptz/:cameraId/stop — ONVIF Stop
+router.post('/ptz/:cameraId/stop', auth, async (req, res) => {
+    const cam = db.prepare('SELECT * FROM cameras WHERE id = ? AND user_id = ?').get(req.params.cameraId, req.userId);
+    if (!cam) return res.status(404).json({ error: 'Camera not found' });
+    if (!cam.cam_ip) return res.status(400).json({ error: 'No IP configured' });
+
+    const onvifPort = cam.onvif_port || 8000;
+    const user = cam.cam_username || 'admin';
+    const pass = cam.cam_password || 'admin';
+
+    try {
+        const profileToken = await getProfileToken(cam);
+        const stopBody = `
+    <tptz:Stop>
+      <tptz:ProfileToken>${profileToken}</tptz:ProfileToken>
+      <tptz:PanTilt>true</tptz:PanTilt>
+      <tptz:Zoom>true</tptz:Zoom>
+    </tptz:Stop>`;
+
+        await onvifSoapRequest(cam.cam_ip, onvifPort, '/onvif/ptz_service', stopBody, user, pass);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(502).json({ error: `PTZ stop error: ${err.message}` });
     }
 });
 

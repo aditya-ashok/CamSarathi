@@ -584,15 +584,34 @@ function renderCameraCard(cam, grid) {
   const isIP = cam.source_type === 'ip';
   const isWebcam = cam.source_type === 'webcam';
   const hasIP = !!cam.cam_ip;
+  const isCPPlus = cam.cam_brand === 'cpplus';
+  const isPTZ = isIP && hasIP && isCPPlus;
 
   const el = createEl('div', 'camera-card');
   el.dataset.camId = cam.id;
   el.innerHTML = `
       <div class="camera-feed" id="feed-wrap-${cam.id}">
-        <!-- Feed area: webcam video, IP snapshot, or placeholder -->
+        <!-- Feed area: webcam video, IP snapshot, PTZ panel, or placeholder -->
         ${isWebcam ? `
           <video id="cam-video-${cam.id}" class="cam-real-video" autoplay muted playsinline></video>
           <canvas id="cam-canvas-${cam.id}" class="cam-motion-canvas" style="display:none"></canvas>
+        ` : isPTZ ? `
+          <div class="ptz-panel">
+            <div class="ptz-header">PTZ CONTROL</div>
+            <div class="ptz-dpad">
+              <button class="ptz-btn ptz-up" onmousedown="ptzMove(${cam.id},0,0.5,0)" onmouseup="ptzStop(${cam.id})" ontouchstart="ptzMove(${cam.id},0,0.5,0)" ontouchend="ptzStop(${cam.id})">&#9650;</button>
+              <button class="ptz-btn ptz-left" onmousedown="ptzMove(${cam.id},-0.5,0,0)" onmouseup="ptzStop(${cam.id})" ontouchstart="ptzMove(${cam.id},-0.5,0,0)" ontouchend="ptzStop(${cam.id})">&#9664;</button>
+              <button class="ptz-btn ptz-center" onclick="ptzStop(${cam.id})">&#9632;</button>
+              <button class="ptz-btn ptz-right" onmousedown="ptzMove(${cam.id},0.5,0,0)" onmouseup="ptzStop(${cam.id})" ontouchstart="ptzMove(${cam.id},0.5,0,0)" ontouchend="ptzStop(${cam.id})">&#9654;</button>
+              <button class="ptz-btn ptz-down" onmousedown="ptzMove(${cam.id},0,-0.5,0)" onmouseup="ptzStop(${cam.id})" ontouchstart="ptzMove(${cam.id},0,-0.5,0)" ontouchend="ptzStop(${cam.id})">&#9660;</button>
+            </div>
+            <div class="ptz-zoom-row">
+              <button class="ptz-btn ptz-zoom" onmousedown="ptzMove(${cam.id},0,0,-0.5)" onmouseup="ptzStop(${cam.id})">-</button>
+              <span class="ptz-zoom-label">ZOOM</span>
+              <button class="ptz-btn ptz-zoom" onmousedown="ptzMove(${cam.id},0,0,0.5)" onmouseup="ptzStop(${cam.id})">+</button>
+            </div>
+            <button class="ptz-app-btn" onclick="openEzyKamApp()">View Live in ezyKam+</button>
+          </div>
         ` : isIP && hasIP ? `
           <img id="cam-img-${cam.id}" class="cam-ip-img" src="/api/stream/rtsp/${cam.id}?tok=${token}"
             onerror="onRtspFeedError(${cam.id}, this)" />
@@ -615,6 +634,9 @@ function renderCameraCard(cam, grid) {
       `<button class="cam-btn cam-btn-snap" onclick="takeSnapshot(${cam.id})" title="Take Snapshot">📸</button>
              <button class="cam-btn cam-btn-full" onclick="openCamera(${cam.id})" title="Fullscreen">⛶</button>
              <button class="cam-btn cam-btn-stop" onclick="stopWebcam(${cam.id})" title="Stop">⏹</button>` :
+      isPTZ ?
+        `<button class="cam-btn cam-btn-full" onclick="openPTZFullscreen(${cam.id})" title="PTZ Fullscreen">⛶</button>
+             <button class="cam-btn cam-btn-probe" onclick="probeCamera(${cam.id})" title="Test Connection">🔌</button>` :
       isIP && hasIP ?
         `<button class="cam-btn cam-btn-snap" onclick="takeIPSnapshot(${cam.id})" title="Capture Snapshot">📸</button>
              <button class="cam-btn cam-btn-full" onclick="openCameraFullscreen(${cam.id})" title="Fullscreen">⛶</button>
@@ -629,6 +651,7 @@ function renderCameraCard(cam, grid) {
         <div class="camera-location">📍 ${cam.location}</div>
         <div class="cam-type-tag">
           ${isWebcam ? '<span class="tag-webcam">💻 Device Webcam</span>' :
+      isPTZ ? `<span class="tag-ip" style="color:#00d4aa;border-color:rgba(0,212,170,0.3)">🎮 PTZ Camera — ${cam.cam_brand?.toUpperCase()} — ${cam.cam_ip}</span>` :
       isIP && hasIP ? `<span class="tag-ip">📡 IP Camera — ${cam.cam_brand?.toUpperCase() || 'IP'} — ${cam.cam_ip}</span>` :
         '<span class="tag-sim">🔮 Simulated</span>'}
         </div>
@@ -833,13 +856,83 @@ async function probeCamera(camId) {
       const ports = [];
       if (res.rtsp_reachable) ports.push('RTSP:554');
       if (res.http_reachable) ports.push(`HTTP:${res.http_port || 80}`);
-      showToast('success', '✅ Camera Online', `Ports open: ${ports.join(', ')}`);
+      if (res.onvif_reachable) ports.push(`ONVIF:${res.onvif_port || 8000}`);
+      let msg = `Ports open: ${ports.join(', ')}`;
+      if (res.ptz_supported) msg += ' | PTZ Ready';
+      showToast('success', '✅ Camera Online', msg);
       updateCameraStatusBadge(camId, true);
     } else {
       showToast('danger', '❌ Camera Offline', res.reason);
       updateCameraStatusBadge(camId, false);
     }
   } catch (err) { showToast('danger', 'Error', err.message); }
+}
+
+// ── PTZ Control Functions ─────────────────────────────────────────────────────
+async function ptzMove(camId, x, y, zoom) {
+  try {
+    await api('POST', `/stream/ptz/${camId}/move`, { x, y, zoom, duration: 800 });
+  } catch (err) {
+    showToast('danger', 'PTZ', err.message);
+  }
+}
+
+async function ptzStop(camId) {
+  try {
+    await api('POST', `/stream/ptz/${camId}/stop`);
+  } catch { /* ignore */ }
+}
+
+function openEzyKamApp() {
+  // Try deep link to ezyKam+ app, fall back to app store
+  const deepLink = 'ezykam://';
+  const appStoreUrl = 'https://play.google.com/store/apps/details?id=com.ml.cpsmart';
+  const iosUrl = 'https://apps.apple.com/app/ezycam/id1574988498';
+
+  // Try to detect mobile
+  const ua = navigator.userAgent.toLowerCase();
+  if (/android/.test(ua)) {
+    window.location = deepLink;
+    setTimeout(() => { window.open(appStoreUrl, '_blank'); }, 1500);
+  } else if (/iphone|ipad/.test(ua)) {
+    window.location = deepLink;
+    setTimeout(() => { window.open(iosUrl, '_blank'); }, 1500);
+  } else {
+    showToast('info', 'ezyKam+', 'Open the ezyKam+ app on your phone to view the live feed. The camera streams via P2P — only accessible through the app.');
+  }
+}
+
+function openPTZFullscreen(camId) {
+  openModal();
+  document.getElementById('modal-body').innerHTML = `
+      <div class="modal-header">
+        <div class="modal-title">🎮 PTZ Camera Control</div>
+        <button class="modal-close" onclick="closeModal()">&#10005;</button>
+      </div>
+      <div class="ptz-fullscreen">
+        <div class="ptz-fs-info">
+          <p>This camera streams via P2P cloud (ezyKam+ app).</p>
+          <p>Use the controls below to pan, tilt and zoom the camera.</p>
+        </div>
+        <div class="ptz-panel ptz-panel-lg">
+          <div class="ptz-dpad ptz-dpad-lg">
+            <button class="ptz-btn ptz-up" onmousedown="ptzMove(${camId},0,0.5,0)" onmouseup="ptzStop(${camId})" ontouchstart="ptzMove(${camId},0,0.5,0)" ontouchend="ptzStop(${camId})">&#9650;</button>
+            <button class="ptz-btn ptz-left" onmousedown="ptzMove(${camId},-0.5,0,0)" onmouseup="ptzStop(${camId})" ontouchstart="ptzMove(${camId},-0.5,0,0)" ontouchend="ptzStop(${camId})">&#9664;</button>
+            <button class="ptz-btn ptz-center" onclick="ptzStop(${camId})">&#9632;</button>
+            <button class="ptz-btn ptz-right" onmousedown="ptzMove(${camId},0.5,0,0)" onmouseup="ptzStop(${camId})" ontouchstart="ptzMove(${camId},0.5,0,0)" ontouchend="ptzStop(${camId})">&#9654;</button>
+            <button class="ptz-btn ptz-down" onmousedown="ptzMove(${camId},0,-0.5,0)" onmouseup="ptzStop(${camId})" ontouchstart="ptzMove(${camId},0,-0.5,0)" ontouchend="ptzStop(${camId})">&#9660;</button>
+          </div>
+          <div class="ptz-zoom-row ptz-zoom-lg">
+            <button class="ptz-btn ptz-zoom" onmousedown="ptzMove(${camId},0,0,-0.5)" onmouseup="ptzStop(${camId})">- Zoom Out</button>
+            <button class="ptz-btn ptz-zoom" onmousedown="ptzMove(${camId},0,0,0.5)" onmouseup="ptzStop(${camId})">+ Zoom In</button>
+          </div>
+          <button class="ptz-app-btn ptz-app-btn-lg" onclick="openEzyKamApp()">Open ezyKam+ App for Live View</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--text-dim);text-align:center;margin-top:10px">
+        PTZ via ONVIF &nbsp;|&nbsp; Live view via ezyKam+ app
+      </p>
+    `;
 }
 
 function updateCameraStatusBadge(camId, online) {

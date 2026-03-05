@@ -147,6 +147,7 @@ try { db.exec("ALTER TABLE cameras ADD COLUMN cam_port INTEGER DEFAULT 80"); } c
 try { db.exec("ALTER TABLE cameras ADD COLUMN cam_username TEXT DEFAULT 'admin'"); } catch { }
 try { db.exec("ALTER TABLE cameras ADD COLUMN cam_password TEXT DEFAULT 'admin'"); } catch { }
 try { db.exec("ALTER TABLE cameras ADD COLUMN cam_brand TEXT DEFAULT 'generic'"); } catch { }
+try { db.exec("ALTER TABLE cameras ADD COLUMN onvif_port INTEGER DEFAULT 8000"); } catch { }
 
 
 // Seed demo data
