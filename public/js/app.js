@@ -166,7 +166,9 @@ function navigate(view) {
     cameras: '📹 Cameras',
     staff: '👥 Staff Management',
     inventory: '🧊 Fridge & Storage',
-    alerts: '🔔 Alerts'
+    alerts: '🔔 Alerts',
+    faces: '🧑 Face Registry',
+    analytics: '📈 AI Analytics'
   };
   document.getElementById('page-title').textContent = titles[view];
 
@@ -176,7 +178,9 @@ function navigate(view) {
     cameras: loadCameras,
     staff: loadStaff,
     inventory: loadInventory,
-    alerts: loadAlerts
+    alerts: loadAlerts,
+    faces: loadFaces,
+    analytics: loadAnalytics
   };
   if (loaders[view]) loaders[view]();
 }
@@ -428,7 +432,7 @@ async function showIncidentDetail(id) {
         <div class="detail-row"><span class="detail-label">📍 Location</span><span class="detail-value">${inc.location || 'Unknown'}</span></div>
         ${inc.staff_name ? `<div class="detail-row"><span class="detail-label">👤 Staff</span><span class="detail-value">${inc.staff_name} (${inc.staff_role}) — Trust Score: ${inc.trust_score}/100</span></div>` : ''}
         ${inc.camera_name ? `<div class="detail-row"><span class="detail-label">📹 Camera</span><span class="detail-value">${inc.camera_name} — ${inc.camera_location}</span></div>` : ''}
-        <div class="detail-row"><span class="detail-label">🕐 Detected</span><span class="detail-value">${new Date(inc.created_at).toLocaleString()}</span></div>
+        <div class="detail-row"><span class="detail-label">🕐 Detected</span><span class="detail-value">${parseUTC(inc.created_at).toLocaleString()}</span></div>
         ${inc.action_taken ? `<div class="detail-row"><span class="detail-label">✅ Action Taken</span><span class="detail-value">${inc.action_taken}</span></div>` : ''}
 
         <div class="ai-analysis-box">
@@ -1020,7 +1024,7 @@ async function showCameraSnapshots(camId) {
             ${logs.length ? logs.map(l => `
               <div style="background:rgba(255,255,255,0.05);border-radius:8px;overflow:hidden;cursor:pointer" onclick="window.open('${l.snapshot}','_blank')">
                 <img src="${l.snapshot}" style="width:100%;aspect-ratio:16/9;object-fit:cover" onerror="this.style.display='none'" />
-                <div style="padding:6px;font-size:10px;color:var(--text-dim)">${new Date(l.created_at).toLocaleString()}</div>
+                <div style="padding:6px;font-size:10px;color:var(--text-dim)">${parseUTC(l.created_at).toLocaleString()}</div>
                 <div style="padding:0 6px 6px;font-size:11px;color:var(--text-muted)">${l.description || l.event_type}</div>
               </div>`).join('') : '<div class="empty-state"><span>📸</span><p>No snapshots yet</p></div>'}
           </div>
@@ -1553,7 +1557,7 @@ function renderAlerts(alerts) {
       <div class="alert-icon-wrap">${a.type === 'high' ? '🚨' : a.type === 'medium' ? '⚠️' : '🔔'}</div>
       <div class="alert-content">
         <div class="alert-message">${a.message}</div>
-        <div class="alert-time">${new Date(a.sent_at).toLocaleString()}</div>
+        <div class="alert-time">${parseUTC(a.sent_at).toLocaleString()}</div>
       </div>
     `;
     el.onclick = async () => {
@@ -1605,6 +1609,254 @@ function closeModal(e) {
 }
 
 // ====== TOAST ======
+// ====== FACES ======
+async function loadFaces() {
+  try {
+    const data = await api('GET', '/faces');
+    renderFaces(data.faces || []);
+    const sightings = await api('GET', '/faces/sightings?limit=20');
+    renderFaceSightings(sightings.sightings || []);
+  } catch (err) {
+    showToast('danger', 'Error', err.message);
+  }
+}
+
+function renderFaces(faces) {
+  const grid = document.getElementById('faces-grid');
+  if (!faces.length) {
+    grid.innerHTML = '<div class="empty-state"><span class="empty-icon">🧑</span><p>No faces registered yet</p></div>';
+    return;
+  }
+  grid.innerHTML = faces.map(f => `
+    <div class="face-card glass-card">
+      <div class="face-photo">${f.photo ? `<img src="${f.photo}" alt="${f.name}"/>` : '<span class="face-placeholder">🧑</span>'}</div>
+      <div class="face-info">
+        <div class="face-name">${f.name}</div>
+        <div class="face-role">${f.role || 'Unknown'}</div>
+        <div class="face-encoding-status">${f.encoding ? '✅ Encoded' : '⏳ No encoding'}</div>
+      </div>
+      <div class="face-actions">
+        <button class="btn-danger btn-xs" onclick="deleteFace(${f.id})">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderFaceSightings(sightings) {
+  const list = document.getElementById('face-sightings-list');
+  if (!sightings.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:16px"><p style="font-size:13px">No face sightings recorded yet</p></div>';
+    return;
+  }
+  list.innerHTML = sightings.map(s => `
+    <div class="sighting-row">
+      <div class="sighting-photo">${s.snapshot ? `<img src="${s.snapshot}" />` : '🧑'}</div>
+      <div class="sighting-info">
+        <strong>${s.name || 'Unknown Person'}</strong>
+        <span class="sighting-meta">Camera #${s.camera_id} · ${s.confidence ? (s.confidence * 100).toFixed(0) + '%' : '—'} · ${timeAgo(s.created_at)}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showFaceModal() {
+  document.getElementById('modal-body').innerHTML = `
+    <h3 style="margin-bottom:16px">Register New Face</h3>
+    <form onsubmit="submitFace(event)">
+      <div class="field-group">
+        <label>Name</label>
+        <input type="text" id="face-name" required class="modal-input" />
+      </div>
+      <div class="field-group">
+        <label>Role</label>
+        <select id="face-role" class="modal-input">
+          <option value="staff">Staff</option>
+          <option value="family">Family</option>
+          <option value="vip">VIP</option>
+          <option value="blocked">Blocked</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Photo (optional — can capture from camera later)</label>
+        <input type="file" id="face-photo" accept="image/*" class="modal-input" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn-primary">Register</button>
+      </div>
+    </form>
+  `;
+  openModal();
+}
+
+async function submitFace(e) {
+  e.preventDefault();
+  try {
+    await api('POST', '/faces', {
+      name: document.getElementById('face-name').value,
+      role: document.getElementById('face-role').value,
+    });
+    closeModal();
+    showToast('success', 'Face Registered', 'Face added to registry');
+    loadFaces();
+  } catch (err) {
+    showToast('danger', 'Error', err.message);
+  }
+}
+
+async function deleteFace(id) {
+  if (!confirm('Remove this face from registry?')) return;
+  try {
+    await api('DELETE', `/faces/${id}`);
+    showToast('success', 'Removed', 'Face removed from registry');
+    loadFaces();
+  } catch (err) {
+    showToast('danger', 'Error', err.message);
+  }
+}
+
+// ====== ANALYTICS ======
+async function loadAnalytics() {
+  try {
+    // Populate camera dropdown
+    const camSelect = document.getElementById('analytics-camera');
+    if (camSelect.options.length <= 1) {
+      const cameras = await api('GET', '/cameras');
+      cameras.forEach(c => {
+        if (c.source_type !== 'simulated') {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = c.name;
+          camSelect.appendChild(opt);
+        }
+      });
+    }
+
+    const cameraId = document.getElementById('analytics-camera').value;
+    const range = document.getElementById('analytics-range').value;
+
+    // Load all analytics data
+    const params = new URLSearchParams();
+    if (cameraId) params.set('camera_id', cameraId);
+
+    // Determine date range
+    const now = new Date();
+    let dateStr = now.toISOString().split('T')[0];
+    if (range === '7days') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      dateStr = d.toISOString().split('T')[0];
+    } else if (range === '30days') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      dateStr = d.toISOString().split('T')[0];
+    }
+    params.set('date', dateStr);
+
+    const [footfall, summary, heatmap, tone] = await Promise.all([
+      api('GET', `/analytics/footfall?${params}`).catch(() => ({ data: [] })),
+      api('GET', `/analytics/summary?${params}`).catch(() => ({})),
+      api('GET', `/analytics/heatmap?${params}`).catch(() => ({ data: [] })),
+      api('GET', `/analytics/tone?${params}`).catch(() => ({ data: [] })),
+    ]);
+
+    renderFootfallChart(footfall.data || []);
+    renderAnalyticsSummary(summary);
+    renderHeatmap(heatmap.data || []);
+    renderToneChart(tone.data || []);
+  } catch (err) {
+    showToast('danger', 'Error', err.message);
+  }
+}
+
+function renderFootfallChart(data) {
+  const container = document.getElementById('footfall-chart');
+  if (!data.length) {
+    container.innerHTML = '<div class="empty-state" style="padding:24px"><p>No footfall data yet</p><p style="font-size:11px;color:var(--text-dim)">Data appears when AI detector is running</p></div>';
+    return;
+  }
+  const maxCount = Math.max(...data.map(d => d.count), 1);
+  const bars = data.map(d => {
+    const hour = d.hour.split('T')[1] || d.hour;
+    const pct = (d.count / maxCount) * 100;
+    return `<div class="bar-col" title="${d.hour}: ${d.count} people">
+      <div class="bar-fill" style="height:${pct}%"></div>
+      <div class="bar-label">${hour}h</div>
+      <div class="bar-value">${d.count}</div>
+    </div>`;
+  }).join('');
+  container.innerHTML = `<div class="bar-chart">${bars}</div>`;
+}
+
+function renderAnalyticsSummary(data) {
+  const el = document.getElementById('analytics-summary');
+  el.innerHTML = `
+    <div class="summary-stat"><span class="summary-num">${data.total_incidents || 0}</span><span class="summary-label">Incidents</span></div>
+    <div class="summary-stat"><span class="summary-num">${data.total_footfall || 0}</span><span class="summary-label">People Counted</span></div>
+    <div class="summary-stat"><span class="summary-num">${data.total_tone_events || 0}</span><span class="summary-label">Tone Events</span></div>
+    <div class="summary-stat"><span class="summary-num">${data.total_face_sightings || 0}</span><span class="summary-label">Face Sightings</span></div>
+  `;
+}
+
+function renderHeatmap(points) {
+  const canvas = document.getElementById('heatmap-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Dark background
+  ctx.fillStyle = '#0a0f1e';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (!points.length) {
+    ctx.fillStyle = '#3d4f7c';
+    ctx.font = '14px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No heatmap data yet', canvas.width / 2, canvas.height / 2);
+    return;
+  }
+
+  // Draw heatmap using radial gradients
+  points.forEach(p => {
+    const x = p.x * canvas.width;
+    const y = p.y * canvas.height;
+    const count = p.count || 1;
+    const radius = Math.min(40 + count * 2, 80);
+    const alpha = Math.min(0.05 + count * 0.02, 0.5);
+
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    grad.addColorStop(0, `rgba(255, 71, 87, ${alpha})`);
+    grad.addColorStop(0.4, `rgba(255, 165, 2, ${alpha * 0.6})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  });
+}
+
+function renderToneChart(data) {
+  const container = document.getElementById('tone-chart');
+  if (!data.length) {
+    container.innerHTML = '<div class="empty-state" style="padding:24px"><p>No tone data yet</p><p style="font-size:11px;color:var(--text-dim)">Enable tone detection in config</p></div>';
+    return;
+  }
+  // Group by emotion
+  const counts = {};
+  data.forEach(d => {
+    counts[d.emotion] = (counts[d.emotion] || 0) + 1;
+  });
+  const emotionColors = { angry: '#ff4757', happy: '#2ed573', neutral: '#5b7fff', sad: '#a855f7' };
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  container.innerHTML = Object.entries(counts).map(([emotion, count]) => {
+    const pct = ((count / total) * 100).toFixed(0);
+    const color = emotionColors[emotion] || '#5b7fff';
+    return `<div class="tone-bar-row">
+      <span class="tone-label">${emotion}</span>
+      <div class="tone-bar-track"><div class="tone-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="tone-count">${count}</span>
+    </div>`;
+  }).join('');
+}
+
+// ====== TOAST ======
 function showToast(type, title, msg) {
   const icons = { danger: '🚨', success: '✅', warning: '⚠️', info: 'ℹ️' };
   const container = document.getElementById('toast-container');
@@ -1628,8 +1880,18 @@ function createEl(tag, className) {
   return el;
 }
 
+// SQLite CURRENT_TIMESTAMP returns 'YYYY-MM-DD HH:MM:SS' in UTC without 'Z'.
+// Without this fix, JS treats it as local time (wrong by timezone offset).
+function parseUTC(dateStr) {
+  if (!dateStr) return new Date();
+  if (!dateStr.endsWith('Z') && !dateStr.includes('+') && !dateStr.includes('T')) {
+    return new Date(dateStr.replace(' ', 'T') + 'Z');
+  }
+  return new Date(dateStr);
+}
+
 function timeAgo(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const diff = Date.now() - parseUTC(dateStr).getTime();
   const s = Math.floor(diff / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);

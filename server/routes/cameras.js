@@ -115,4 +115,30 @@ router.get('/:id/snapshots', auth, (req, res) => {
     res.json(logs);
 });
 
+// GET /api/cameras/rtsp-list — list real cameras with RTSP URLs (for AI detector)
+// Authenticated via X-API-Key header
+const AI_API_KEY = process.env.AI_API_KEY || 'camsarathi-ai-key-2024';
+const { buildRtspInfo } = require('./stream');
+
+router.get('/rtsp-list', (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey !== AI_API_KEY) {
+        return res.status(401).json({ error: 'Invalid API key' });
+    }
+
+    const cameras = db.prepare(
+        "SELECT * FROM cameras WHERE source_type != 'simulated' AND cam_ip IS NOT NULL AND status = 'active'"
+    ).all();
+
+    const result = cameras.map(cam => ({
+        id: cam.id,
+        name: cam.name,
+        location: cam.location,
+        brand: cam.cam_brand,
+        rtsp_url: buildRtspInfo(cam),
+    })).filter(c => c.rtsp_url);
+
+    res.json({ cameras: result });
+});
+
 module.exports = router;

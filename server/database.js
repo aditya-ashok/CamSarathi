@@ -149,6 +149,70 @@ try { db.exec("ALTER TABLE cameras ADD COLUMN cam_password TEXT DEFAULT 'admin'"
 try { db.exec("ALTER TABLE cameras ADD COLUMN cam_brand TEXT DEFAULT 'generic'"); } catch { }
 try { db.exec("ALTER TABLE cameras ADD COLUMN onvif_port INTEGER DEFAULT 8000"); } catch { }
 
+// New tables for advanced AI features
+db.exec(`
+  CREATE TABLE IF NOT EXISTS detection_zones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id INTEGER NOT NULL REFERENCES cameras(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    zone_type TEXT DEFAULT 'restricted',
+    polygon TEXT NOT NULL,
+    alert_on TEXT DEFAULT 'enter',
+    color TEXT DEFAULT '#ff4757',
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS footfall_counts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    hour TEXT NOT NULL,
+    count INTEGER DEFAULT 0,
+    zone_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS known_faces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    role TEXT,
+    photo TEXT,
+    encoding TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS face_sightings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id INTEGER NOT NULL,
+    known_face_id INTEGER,
+    snapshot TEXT,
+    confidence REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS tone_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    emotion TEXT NOT NULL,
+    confidence REAL,
+    audio_clip TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS heatmap_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id INTEGER NOT NULL,
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    class TEXT DEFAULT 'person',
+    hour TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
 // Seed demo data
 const seedData = () => {

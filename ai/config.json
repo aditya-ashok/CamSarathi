@@ -1,0 +1,30 @@
+{
+  "server_url": "http://localhost:3000",
+  "api_key": "camsarathi-ai-key-2024",
+  "model": "yolov8n.pt",
+  "pose_model": "yolov8m-pose.pt",
+  "confidence_threshold": 0.45,
+  "frame_interval": 2.0,
+  "cooldown_seconds": 30,
+  "loiter_threshold_seconds": 120,
+  "face_tolerance": 0.5,
+  "tone_cooldown_seconds": 60,
+  "tone_buffer_seconds": 4,
+  "features": {
+    "tracking": true,
+    "zones": true,
+    "loitering": true,
+    "fall_detection": true,
+    "face_recognition": false,
+    "tone_detection": false,
+    "heatmap": true,
+    "footfall": true
+  },
+  "cameras": [
+    {
+      "id": 7,
+      "name": "Tapo TC70",
+      "rtsp_url": "rtsp://adityaashok.india:Simalaya%401@192.168.1.15:554/stream1"
+    }
+  ]
+}

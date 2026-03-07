@@ -154,6 +154,14 @@
             <span>Alerts</span>
             <span class="nav-badge" id="alerts-badge"></span>
           </a>
+          <a href="#" class="nav-item" data-view="faces" onclick="navigate('faces')">
+            <span class="nav-icon">🧑</span>
+            <span>Faces</span>
+          </a>
+          <a href="#" class="nav-item" data-view="analytics" onclick="navigate('analytics')">
+            <span class="nav-icon">📈</span>
+            <span>Analytics</span>
+          </a>
         </nav>
         <div class="sidebar-footer">
           <div class="sidebar-user" id="sidebar-user">
@@ -297,6 +305,56 @@
               <button class="btn-secondary btn-sm" onclick="markAllRead()">Mark All Read</button>
             </div>
             <div id="alerts-list" class="alerts-list"></div>
+          </div>
+
+          <!-- Faces View -->
+          <div id="view-faces" class="view">
+            <div class="view-toolbar">
+              <h3 class="toolbar-title">Face Registry</h3>
+              <button class="btn-primary btn-sm" onclick="showFaceModal()">+ Register Face</button>
+            </div>
+            <div id="faces-grid" class="faces-grid"></div>
+            <div class="panel-header" style="margin-top:24px">
+              <h3>Recent Face Sightings</h3>
+            </div>
+            <div id="face-sightings-list" class="sightings-list"></div>
+          </div>
+
+          <!-- Analytics View -->
+          <div id="view-analytics" class="view">
+            <div class="view-toolbar">
+              <h3 class="toolbar-title">AI Analytics</h3>
+              <div style="display:flex;gap:8px;align-items:center">
+                <select id="analytics-camera" onchange="loadAnalytics()" class="filter-select">
+                  <option value="">All Cameras</option>
+                </select>
+                <select id="analytics-range" onchange="loadAnalytics()" class="filter-select">
+                  <option value="today">Today</option>
+                  <option value="7days">Last 7 Days</option>
+                  <option value="30days">Last 30 Days</option>
+                </select>
+              </div>
+            </div>
+            <div class="analytics-grid">
+              <div class="dash-panel">
+                <div class="panel-header"><h3>Footfall — Hourly Count</h3></div>
+                <div id="footfall-chart" class="chart-container" style="height:250px"></div>
+              </div>
+              <div class="dash-panel">
+                <div class="panel-header"><h3>Daily Summary</h3></div>
+                <div id="analytics-summary" class="analytics-summary"></div>
+              </div>
+              <div class="dash-panel full-width">
+                <div class="panel-header"><h3>Heatmap</h3></div>
+                <div id="heatmap-container" class="heatmap-container">
+                  <canvas id="heatmap-canvas" width="640" height="480"></canvas>
+                </div>
+              </div>
+              <div class="dash-panel">
+                <div class="panel-header"><h3>Tone Analysis</h3></div>
+                <div id="tone-chart" class="chart-container" style="height:200px"></div>
+              </div>
+            </div>
           </div>
         </div>
       </main>

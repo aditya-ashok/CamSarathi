@@ -25,6 +25,9 @@ const alertsRouter = require('./routes/alerts');
 const inventoryRouter = require('./routes/inventory');
 const dashboardRouter = require('./routes/dashboard');
 const { router: streamRouter, cleanupStreams } = require('./routes/stream');
+const zonesRouter = require('./routes/zones');
+const facesRouter = require('./routes/faces');
+const analyticsRouter = require('./routes/analytics');
 
 app.use('/api/auth', authRouter);
 app.use('/api/cameras', camerasRouter);
@@ -34,6 +37,9 @@ app.use('/api/alerts', alertsRouter);
 app.use('/api/inventory', inventoryRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/stream', streamRouter);
+app.use('/api/zones', zonesRouter);
+app.use('/api/faces', facesRouter);
+app.use('/api/analytics', analyticsRouter);
 
 
 // WebSocket for real-time alerts
@@ -56,6 +62,9 @@ const broadcast = (data) => {
         if (client.readyState === 1) client.send(msg);
     });
 };
+
+// Expose broadcast for other modules (AI detection, etc.)
+app.set('broadcast', broadcast);
 
 // Real-time alerts are now triggered by actual camera events only
 // (no more simulated 45-second fake broadcasts)

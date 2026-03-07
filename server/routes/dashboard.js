@@ -103,4 +103,72 @@ router.post('/simulate-ai-event', auth, (req, res) => {
     res.json({ message: 'AI event simulated', incident: { id: incId, ...event } });
 });
 
+// ── AI Detection Endpoint (called by Python YOLO service) ─────────────────────
+// Authenticated via X-API-Key header (shared secret with ai/config.json)
+const AI_API_KEY = process.env.AI_API_KEY || 'camsarathi-ai-key-2024';
+
+router.post('/ai-detection', (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey !== AI_API_KEY) {
+        return res.status(401).json({ error: 'Invalid API key' });
+    }
+
+    const { camera_id, type, severity, title, description, ai_confidence, snapshot, detections } = req.body;
+    if (!camera_id || !type || !title) {
+        return res.status(400).json({ error: 'camera_id, type, and title are required' });
+    }
+
+    // Look up the camera to find the owner
+    const camera = db.prepare('SELECT * FROM cameras WHERE id = ?').get(camera_id);
+    if (!camera) {
+        return res.status(404).json({ error: 'Camera not found' });
+    }
+
+    const uid = camera.user_id;
+
+    // Create incident
+    const incId = db.prepare(`
+        INSERT INTO incidents (user_id, camera_id, type, severity, title, description, location, snapshot, ai_confidence, status)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    `).run(uid, camera_id, type, severity || 'low', title, description || '',
+        camera.location, snapshot || null, ai_confidence || 0, 'open').lastInsertRowid;
+
+    // Create alert
+    db.prepare('INSERT INTO alerts (user_id, incident_id, type, message) VALUES (?,?,?,?)').run(
+        uid, incId, severity || 'low', `🤖 AI Detection: ${title}`
+    );
+
+    // Log activity
+    db.prepare(
+        'INSERT INTO activity_logs (user_id, camera_id, event_type, description, snapshot, metadata) VALUES (?,?,?,?,?,?)'
+    ).run(uid, camera_id, 'ai_detection', description || title, snapshot || null,
+        detections ? JSON.stringify(detections) : null);
+
+    // Update camera last_seen
+    db.prepare('UPDATE cameras SET last_seen = CURRENT_TIMESTAMP WHERE id = ?').run(camera_id);
+
+    // Broadcast real-time alert via WebSocket
+    const broadcast = req.app.get('broadcast');
+    if (broadcast) {
+        broadcast({
+            type: 'ai_event',
+            incident: {
+                id: incId,
+                camera_id,
+                camera_name: camera.name,
+                incident_type: type,
+                severity: severity || 'low',
+                title,
+                description,
+                ai_confidence: ai_confidence || 0,
+                snapshot,
+                detections,
+                created_at: new Date().toISOString(),
+            }
+        });
+    }
+
+    res.json({ message: 'Detection recorded', incident_id: incId });
+});
+
 module.exports = router;
